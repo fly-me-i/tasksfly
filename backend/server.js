@@ -16,7 +16,16 @@ if (!process.env.JWT_SECRET) {
 
 const app = express();
 
-app.use(cors());
+// If FRONTEND_URL is set (i.e. we're deployed), only accept requests from
+// that origin. Left unset, CORS stays wide open for local dev, where the
+// frontend can be running on any port.
+app.use(
+  cors(
+    process.env.FRONTEND_URL
+      ? { origin: process.env.FRONTEND_URL }
+      : undefined
+  )
+);
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
