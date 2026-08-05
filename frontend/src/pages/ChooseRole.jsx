@@ -11,7 +11,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 const ROLE_OPTIONS = [
   "Head of Marketting",
   "International Chapters Lead",
-  "Marketting Secretary",
+  "Marketing Secretary",
   "Operational Secretary",
   "HR Leads",
   "Executive Secretary",
