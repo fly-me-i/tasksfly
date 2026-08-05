@@ -2,7 +2,8 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import db from "../db.js";
+import { pool } from "../db.js";
+import { asyncHandler } from "../asyncHandler.js";
 
 const router = Router();
 
@@ -34,53 +35,62 @@ function toUserPayload(user) {
 // the dashboard (requireActive blocks that) until an admin approves them.
 // Always creates a normal (non-admin) account — self-signup can never grant
 // admin access, regardless of anything the client sends.
-router.post("/signup", (req, res) => {
-  const { username, password, fullName } = req.body;
+router.post(
+  "/signup",
+  asyncHandler(async (req, res) => {
+    const { username, password, fullName } = req.body;
 
-  if (!username || !password || !fullName) {
-    return res.status(400).json({ error: "Full name, username, and password are required." });
-  }
-  if (password.length < 6) {
-    return res.status(400).json({ error: "Password must be at least 6 characters." });
-  }
+    if (!username || !password || !fullName) {
+      return res.status(400).json({ error: "Full name, username, and password are required." });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters." });
+    }
 
-  const existing = db.prepare("SELECT id FROM users WHERE username = ?").get(username);
-  if (existing) {
-    return res.status(409).json({ error: "That username is already taken." });
-  }
+    const { rows: existingRows } = await pool.query("SELECT id FROM users WHERE username = $1", [username]);
+    if (existingRows[0]) {
+      return res.status(409).json({ error: "That username is already taken." });
+    }
 
-  const hash = bcrypt.hashSync(password, 10);
+    const hash = bcrypt.hashSync(password, 10);
 
-  const result = db
-    .prepare(
+    // RETURNING * gets us the full new row in the same round-trip — Postgres
+    // has no equivalent of better-sqlite3's lastInsertRowid, so this replaces
+    // the separate follow-up SELECT the SQLite version needed.
+    const { rows } = await pool.query(
       `INSERT INTO users (username, password_hash, full_name, org_role, is_admin, status)
-       VALUES (?, ?, ?, '', 0, 'pending_role')`
-    )
-    .run(username, hash, fullName);
+       VALUES ($1, $2, $3, '', FALSE, 'pending_role')
+       RETURNING *`,
+      [username, hash, fullName]
+    );
+    const user = rows[0];
+    const token = issueToken(user);
 
-  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(result.lastInsertRowid);
-  const token = issueToken(user);
-
-  res.status(201).json({ token, user: toUserPayload(user) });
-});
+    res.status(201).json({ token, user: toUserPayload(user) });
+  })
+);
 
 // POST /api/auth/login
-router.post("/login", (req, res) => {
-  const { username, password } = req.body;
+router.post(
+  "/login",
+  asyncHandler(async (req, res) => {
+    const { username, password } = req.body;
 
-  if (!username || !password) {
-    return res.status(400).json({ error: "Username and password are required." });
-  }
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required." });
+    }
 
-  const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
+    const { rows } = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
+    const user = rows[0];
 
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-    return res.status(401).json({ error: "Invalid username or password." });
-  }
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+      return res.status(401).json({ error: "Invalid username or password." });
+    }
 
-  const token = issueToken(user);
+    const token = issueToken(user);
 
-  res.json({ token, user: toUserPayload(user) });
-});
+    res.json({ token, user: toUserPayload(user) });
+  })
+);
 
 export default router;

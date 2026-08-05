@@ -34,6 +34,15 @@ app.use("/api/tasks", taskRoutes);
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
+// Catches any error passed to next(err) — which now includes every database
+// error, thanks to the asyncHandler wrapper used throughout routes/. Without
+// this, a failed query would leave the request hanging with no response at
+// all (see asyncHandler.js for why). Must be defined AFTER all routes.
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: "Something went wrong on the server." });
+});
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`Task Manager API running at http://localhost:${PORT}`);
